@@ -1,350 +1,395 @@
 package com;
-import cmd.*;
-import cmd.Exception.*;
-import java.io.*;
-import java.util.*;
-import java.lang.*;
-import java.nio.file.*;
+import java.io.BufferedReader;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
 
+public class FtpRequest implements Runnable{
 
-public class FtpRequest extends Thread {
+    private Socket socket;
+    private boolean StillConnect;
+    private HashMap<String, String> userAndPassWord;
+    private String user = null;
+    private boolean log = false;
+    private BufferedReader in;
+    private DataOutputStream out;
+    private Socket downloadSocket;
+    private boolean passiv = false;
+    private Socket comSocket= null;
+    private ServerSocket s;
+    private int comPort;
+    private static String path = "serveur" ;
+    private File ancien_nom = null;
 
-
-
-    private boolean isAuthenticated;
-    private boolean isConnected;
-    private boolean isPassive;
-
-    public BufferedReader in;
-    private final ServerSocket passiveSocket;
-    public Socket socket;
-    private InetAddress clientAddr;
-    private final InputStream dataIn;
-    private final OutputStream dataOut;
-    private Socket socketData;
-    private int communicationPort;
-
-    private ServerSocket serverSocket;
-    public String login, password, message;
-
-    public User auth;
-    public DevServer parServ;
-
-    public FtpRequest(final Socket socket) throws IOException {
+    public FtpRequest(Socket socket, HashMap<String, String> userAndPassWord) throws IOException{
         this.socket = socket;
-        this.auth = new User();
-        this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        this.dataIn = this.socket.getInputStream();
-        this.dataOut = this.socket.getOutputStream();
-        this.clientAddr = this.socket.getInetAddress();
-        this.communicationPort = this.socket.getPort();
-        this.isAuthenticated = false;
-        this.isConnected = false;
-        this.isPassive = false;
-        this.passiveSocket = new ServerSocket(0);
+        this.StillConnect = true;
+        this.userAndPassWord = userAndPassWord;
+        this.out = new DataOutputStream(this.socket.getOutputStream()); // ecrire
+        this.in = new BufferedReader(new InputStreamReader(socket.getInputStream())); // lire
+        s = new ServerSocket(0);
+
     }
-
-
-    private String cleanCmd(final String cmd) {
-        return cmd.replaceAll("\n|\r", "");
+    public FtpRequest() {
+        // TODO Auto-generated constructor stub
     }
-
-    public String[] Spplit(String cmd) {
-
-        String[] tab;
-        tab = cmd.split(" ");
-        return tab;
-    }
-
     @Override
     public void run() {
         try {
-            this.sendMessage(Commande.WELCOME);
 
-            while (true) {
-                message = in.readLine();
-                if (message != null) {
-                    processRequest(message);
+            System.out.println("Connexion avec le client : " + socket.getInetAddress());
+            out.writeBytes("220 ready\n");
+
+            while (this.StillConnect) {
+                try {
+
+                    String message = in.readLine();
+                    if (message != null) {
+                        System.out.println("client : " +message);
+                        this.processRequest(message);
+                    }
+                } catch (final IOException e) {
+                    e.printStackTrace();
                 }
             }
 
-        } catch (IOException er) {
-            System.out.println("erreur : " + er);
-        }
-    }
-
-    public boolean isPassive() {
-        return this.isPassive;
-    }
-
-    public boolean isConnected() {
-        return this.isConnected;
-    }
-
-    private void sendMessage(String msg) throws IOException {
-        msg += Commande.END_LINE;
-        this.dataOut.write(msg.getBytes());
-        this.dataOut.flush();
-    }
-
-    private void processRequest(String message) {
-
-
-        System.out.println("serv:  " + message + "\n");
-
-        try {
-            if (message != null) {
-                String tab[] = message.split(" ");
-                if (tab[0].equals("USER")) {
-                    processUSER(tab[1]);
-                } else if (tab[0].equals("PASS")) {
-                    processPASS(tab[1]);
-                } else if (tab[0].equals("QUIT")) {
-                    processQUIT();
-                } else if (tab[0].equals("OPTS")) {
-                    processOPTS();
-                } else if (tab[0].equals("PORT")) {
-                    processPORT(tab[1]);
-                } else if (tab[0].equals("PASV")) {
-                    processPASV();
-                } else if (tab[0].equals("LIST") || tab[0].equals("NLST")) {
-                    processLIST();
-                } else if (tab[0].equals("RETR")) {
-                    processRetr(tab[1]);
-                } else if (tab[0].equals("STOR")) {
-                    processStor(tab[1]);
-                } else {
-                    this.sendMessage(Commande.ERR_BAD_CMD);
-                    System.out.println("others de switch\n");
-                    throw new NotExistCommandException();
-                }
-            }
-        } catch (NotAuthentificationException b) {
-            System.out.println("erreur: " + b);
-        } catch (NotDirectoryException ND) {
-            System.out.println("erreur : " + ND);
-        } catch (NotExistCommandException ExCmd) {
-            System.out.println("Erreur : " + ExCmd);
-        } catch (BadOrderException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
+            this.socket.close();
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public void processUSER(String user) throws IOException {
+    public void processRequest(String message) throws IOException {
+        if(message != null) {
+            String res = null;
+            message = message.trim();
+            String[] requet = message.split("\\s+",2);
 
-        if (!this.isConnected) {
 
-            this.login = user;
-            if (auth.CorrectUser(user)) {
-                this.sendMessage(Commande.USER_OK);
-            } else {
-                this.sendMessage(Commande.USER_KO);
+            if (requet[0].equalsIgnoreCase("USER")) {
+                res = this.processUSER(requet[1]);
+            } else if (requet[0].equalsIgnoreCase("PASS")) {
+                res = this.processPASS(requet[1]);
+            } else if (requet[0].equalsIgnoreCase("LIST")) {
+                res = this.processLIST();
+            } else if (requet[0].equalsIgnoreCase("RETR")) {
+                res = this.processRETR(requet[1]);
+            } else if (requet[0].equalsIgnoreCase("PASV")) {
+                res = this.processPASV();
+            } else if (requet[0].equalsIgnoreCase("ACTV")) {
+                res = this.processACTV();
+            } else if (requet[0].equalsIgnoreCase("EPRT")) {
+                res = this.processEPRT(requet[1]);
+            } else if (requet[0].equalsIgnoreCase("STOR")) {
+                res = this.processSTOR(requet[1]);
+            } else if (requet[0].equalsIgnoreCase("CWD")) {
+                res = this.processCD(requet[1]);
+            }	else if (requet[0].equalsIgnoreCase("PWD")) {
+                res = this.processPWD(path);
+            }	else if (requet[0].equalsIgnoreCase("XMKD")) {
+                res = this.processMKDIR(requet[1]);
+            }	else if (requet[0].equalsIgnoreCase("RNFR")) {
+                res = this.processRNFR(requet[1]);
+            }	else if (requet[0].equalsIgnoreCase("XRMD")) {
+                res = this.processXRMD(requet[1]);
+            }	else if (requet[0].equalsIgnoreCase("QUIT")) {
+                res = this.processQUIT();
+            }	else if (requet[0].equalsIgnoreCase("RNTO")) {
+                res = this.processRNTO(requet[1]);
             }
-
-        } else {
-            this.sendMessage(Commande.ERR_CHANGE_USER);
+            else{
+                this.sendMessage("ERROR YAZID");
+            }
+            this.sendMessage(res);
         }
     }
 
-    private void processPASS(String password) throws BadOrderException, IOException {
-        this.password = password;
+    public String processQUIT() {
+        this.StillConnect= false;
+        return "221 QUIT";
+    }
 
-        if (auth.CorrectPass(password)) {
-            this.isConnected = true;
-
-            this.sendMessage(Commande.PASS_OK);
-        } else {
-            this.isConnected = false;
-
-            try {
-                this.sendMessage(Commande.PASS_KO);
-            } catch (IOException e) {
-                e.printStackTrace();
+    public String processXRMD(String message) {
+        File rep = new File(path+"/"+message);
+        String[]files = rep.list();
+        if (files != null) {
+            for(String f: files){
+                File currentFile = new File(rep.getPath(),f);
+                currentFile.delete();
             }
         }
+        if(rep.delete())
+            return "Delete saccess";
+        return "530 Delete failed";
     }
 
-    public void processQUIT() throws IOException {
-        this.isConnected = false;
+    public String processRNFR(String message) throws IOException {
 
-        this.sendMessage(Commande.QUIT_OK);
-        socket.close();
+        ancien_nom = new File(path+"/"+message.trim());
+        if(ancien_nom.exists())
+            return "350 File exists";
+        return "404 File not found !!";
     }
 
-    public void processPORT(String tab) throws IOException {
-        String AdrrPort[] = tab.split(",");
-        communicationPort = (Integer.parseInt(AdrrPort[4]) * 256) + Integer.parseInt(AdrrPort[5]);
-        clientAddr = InetAddress.getByName(AdrrPort[0] + "." + AdrrPort[1] + "." + AdrrPort[2] + "." + AdrrPort[3]);
-        this.socketData = new Socket(this.clientAddr, this.communicationPort);
+    public String processRNTO(String message) throws IOException{
 
-        this.sendMessage("200 PORT command successful. Consider using PORT.\r\n");
+        File nouveau_nom = new File(path+"/"+message.trim());
+
+        if (ancien_nom.renameTo(nouveau_nom))
+            return "250 Rename success";
+        return null;
     }
 
-    public void processPASV() throws IOException {
-        this.serverSocket = new ServerSocket(0);
-        this.isPassive = true;
+    public String processMKDIR(String message) throws IOException {
 
-        byte[] Adress = this.socket.getInetAddress().getAddress();
-        String addr = "";
-        for (byte bit : Adress) {
-            addr += bit + ",";
+        File dir = new File(path+"/"+message);
+        if(dir.mkdirs()) {
+            return message.trim()+" created";
         }
-        int port = serverSocket.getLocalPort();
-        this.sendMessage("227 Entering Passive Mode (" + addr + (port / 256) + "," + (port % 256) + ")\r\n");
-        this.socketData = this.serverSocket.accept();
+        return "KO";
+    }
+
+    public String processPWD(String path) throws IOException{
+
+        String cleanPathFile = new File(path).getCanonicalPath();
+        String[] s = cleanPathFile.split("FTP", 2);
+        return s[0];
 
     }
 
-    public void processLIST() throws NotAuthentificationException, IOException {
+    public String processCD(String message) throws IOException{
+        //((/?\\w*/?)?(/?[.]{1,2})(/[.]{1,2})?)
+        if(message.matches("((/?\\w*([.])?\\w+/?)|(/?[.]{1,2})(/[.]{1,2})?)|((/?\\w*([.])?\\w+/?)(/?[.]{1,2})(/[.]{1,2})?)")) {
+            File f = new File(path+"/"+message);
+            String s = processPWD(f.getPath());
+
+            if(s.indexOf("serveur") != -1) {
+                System.out.println("OK");
+                if(f.isDirectory()) {
+                    path += "/"+message;
+                    return "OK";
+                }else
+                    return "No such directory or is not a directory !!";
+
+            }
+            else
+                return "You can't go down !!";
+        }
+
+        return "Path name not correct !!";
+
+    }
 
 
-        String FileName = "";
-        String permission = "";
-        String resultat = "";
-        Date date = null;
-        String userName = "";
 
-        if (isConnected()) {
+    public String processSTOR(String message) throws IOException{
 
-            sendMessage("150 Opening data channel for directory list.\r\n");
+        File f = new File(path+"/"+message);
+
+        downloadSocket = new Socket();
+        downloadSocket.connect(new InetSocketAddress(this.socket.getInetAddress(), this.comPort));
+        this.sendMessage("125 download");
+
+        DataInputStream dIn = new DataInputStream(downloadSocket.getInputStream());
+        FileOutputStream dOut = new FileOutputStream(f);
+
+        byte[] buffer = new byte[downloadSocket.getReceiveBufferSize()];
+        int bytesRead = -1 ;
+        while ((bytesRead = dIn.read(buffer)) != -1) {
+            dOut.write(buffer, 0, bytesRead) ;
+        }
+
+        dIn.close();
+        dOut.flush();
+        sendMessage("226 File downloaded");
+        dOut.close();
+
+        return "OK";
+    }
+
+    public String processEPRT(String message) {
+
+        String[] cmd = message.split("[|]");
+        this.comPort = Integer.parseInt(cmd[3]);
+        System.out.println("communication port : " + this.comPort);
+
+        return "communication port : "+ this.comPort;
+
+    }
 
 
-            OutputStream out = socketData.getOutputStream();
-            DataOutputStream dataOut = new DataOutputStream(out);
 
-            File[] files = new File(parServ.getCurrentDirectory()).listFiles();
-            for (File file : files) {
+    public String processPASV() throws IOException {
+        if(log) {
 
-                FileName = file.getName();
+            int port = s.getLocalPort();
+            int p1 = port / 256;
+            int p2 = port % 256;
+            this.passiv = true;
 
-                date = new Date(file.lastModified());
+            String[] adresse = InetAddress.getLocalHost().toString().split("[/]",2);
+            String[] h1_4 =adresse[1].split("[.]");
 
-                userName = Files.getOwner(file.toPath()).toString();
+            //sendMessage("227 passive mode ("+h1_4[0]+','+h1_4[1]+','+h1_4[2]+','+h1_4[3]+','+p1+","+p2+")");
+            sendMessage("227 passive mode (0,0,0,0,"+p1+","+p2+")");
+            this.downloadSocket = this.s.accept();
 
-                if (file.isFile()) {
-                    permission = "-rw-rw-rw-";
-                } else {
-                    permission = "drw-rw-rw-";
+        }
+        return null;
+    }
+
+    public String processACTV() throws IOException {
+        if(log) {
+            downloadSocket = new Socket();
+            downloadSocket.connect(new InetSocketAddress(this.socket.getInetAddress(), this.comPort));
+            return "ok";
+        }
+        return null;
+    }
+
+    public String processRETR(String message) throws IOException {
+        File file = new File(path+"/"+message);
+
+        if(file.exists()) {
+            downloadSocket = new Socket();
+            downloadSocket.connect(new InetSocketAddress(this.socket.getInetAddress(), this.comPort));
+            this.sendMessage("125 download");
+            DataOutputStream dOut = new DataOutputStream(downloadSocket.getOutputStream());
+
+            if(file.isFile()) {
+                FileInputStream dIn = new FileInputStream(file);
+
+                byte[] buffer = new byte[downloadSocket.getSendBufferSize()];
+                int bytesRead = -1 ;
+                while ((bytesRead = dIn.read(buffer)) != -1) {
+                    dOut.write(buffer, 0, bytesRead) ;
                 }
 
-                resultat += permission + "\t" + userName + "\t" + file.length() + "\t" + date + "\t" + FileName + "\n";
-            }
+                dIn.close();
+                dOut.flush();
+                sendMessage("226 File downloaded");
+                dOut.close();
+                return "OK";
+            }else {
+                File source = new File(path+"../../../../"+file.getName());
+                //if(!source.exists())
+                //	source.mkdirs();
 
-            dataOut.writeBytes(resultat + "\n");
-            dataOut.close();
-            this.socketData.close();
-            out.close();
-            if (this.serverSocket != null) {
-                this.serverSocket.close();
-                this.serverSocket = null;
+                //file.renameTo(source);
+                File[] files = file.listFiles();
+                for(int i = 0; i < files.length; i++){
+                    if(files[i].isDirectory())
+                        processRETR(file.getName()+"/"+files[i].getName());
+                    else {
+                        //System.out.println(file.getName()+"/"+f.getName());
+                        //processRETR(file.getName()+"/"+files[i].getName());
+                        this.sendMessage("125 download");
+                        dOut = new DataOutputStream(downloadSocket.getOutputStream());
+
+                        if(file.isFile()) {
+                            FileInputStream dIn = new FileInputStream(file);
+
+                            byte[] buffer = new byte[downloadSocket.getSendBufferSize()];
+                            int bytesRead = -1 ;
+                            while ((bytesRead = dIn.read(buffer)) != -1) {
+                                dOut.write(buffer, 0, bytesRead) ;
+                            }
+
+                            dIn.close();
+                            dOut.flush();
+                            sendMessage("226 File downloaded");
+                            dOut.close();
+                            return "OK";
+                        }
+						/*this.sendMessage("125 download");
+						FileInputStream dIn = new FileInputStream(f);
+						dOut = new DataOutputStream(downloadSocket.getOutputStream());
+
+						byte[] buffer = new byte[downloadSocket.getSendBufferSize()];
+
+						int bytesRead = -1 ;
+						while ((bytesRead = dIn.read(buffer)) != -1) {
+							dOut.write(buffer, 0, bytesRead) ;
+						}
+
+						dIn.close();
+						dOut.flush();
+						sendMessage("226 File downloaded");*/
+                        //processRETR(file.getName()+"/"+f.getName());
+                    }
+                }
+                //dOut.close();
+					/*public static void copyDirectory(final File from, final File to) throws IOException {
+						 if (! to.exists()) {
+						  to.mkdir();
+						 }
+						 final File[] inDir = from.listFiles();
+						 for (int i = 0; i < inDir.length; i++) {
+						  final File file = inDir[i];
+						  copy(file, new File(to, file.getName()));
+						 }
+					}*/
+
             }
-            sendMessage("226 Directory send OK.\r\n");
-        } else {
-            this.sendMessage("550 errour non ethentification.\r\n");
-            throw new NotAuthentificationException();
+            //dOut.flush();
+            //sendMessage("226 File downloaded");
+            //dOut.close();
+            return "OK";
         }
+
+
+
+        return "404 file not found";
     }
 
-    public void processStor(String fichier) throws NotAuthentificationException, IOException {
 
-        if (this.isConnected() != true) {
-            this.sendMessage("550 errour non ethentification.\r\n");
-            throw new NotAuthentificationException();
-        } else {
-            if (this.socketData == null) {
-                this.sendMessage("425 la connexion data n'est pas realisée\r\n");
-            } else {
+    public String processLIST() {
+        if(log) {
+            File repertoir = new File(path);
+            StringBuilder builder = new StringBuilder();
 
-                InputStream in = this.socketData.getInputStream();
-                File f = new File(parServ.getCurrentDirectory());
-                String chemin = f.toPath().toAbsolutePath().toString();
-                Path tar = Paths.get(chemin + "/" + fichier);
-                System.out.println("etape 1");
-                this.sendMessage("125 Starting transfer.\r\n");
-                Files.copy(in, tar, StandardCopyOption.REPLACE_EXISTING);
-                System.out.println("etape 2");
-                in.close();
-                this.socketData.close();
-
-                //this.serverSocket.close();
-                this.sendMessage("226 \r\n");
+            for(File f : repertoir.listFiles()){
+                if(f.isDirectory())
+                    builder.append(f.getName()+" -d \t");
+                else
+                    builder.append(f.getName()+" -f \t");
             }
-
-            System.out.println("on a sortie de la fonctin stor");
+            return builder.toString();
         }
+
+        return "you mast log first !!";
     }
 
-    public void processOPTS() throws IOException {
-
-        this.sendMessage("200 Welcome on the FTP Server\r\n");
-    }
-
-    public void processRetr(String fichier) throws NotAuthentificationException, IOException {
-
-        if (this.isConnected() != true) {
-            this.sendMessage("550 errour non ethentification.\r\n");
-            throw new NotAuthentificationException();
-        } else if (this.socketData == null) {
-            this.sendMessage("425 la connexion data n'est pas realisée\r\n");
-        } else {
-
-            //this.envoyerMessage("125 Starting transfer.\r\n");
-
-            File f = new File(parServ.getCurrentDirectory());
-
-            String chemin = f.toPath().toAbsolutePath().toString();
-            Path tar = Paths.get(chemin + "/" + fichier);
-
-            File ftest = new File(parServ.getCurrentDirectory() + File.separator + fichier);
-
-            if(ftest.exists()){
-                this.sendMessage("125 Starting transfer.\r\n");
-
-                OutputStream os = this.socketData.getOutputStream();
-                Files.copy(tar, os);
-                os.flush();
-                System.out.println("etape 1");
-                this.sendMessage("226 RETR Transfer completed.\r\n");
-
-                this.socketData.close();
-                this.serverSocket = null;
-            }else{
-
-                this.sendMessage("550 " + fichier + " Is Not Exist.\r\n");
-            }
+    public String processUSER(String message) {
+        if (this.userAndPassWord.containsKey(message)) {
+            user = message;
+            return "331 name OK";
         }
+        return "530 name KO";
     }
 
-    public void processPWD() throws NotAuthentificationException, IOException {
-
-        if (!this.isConnected()) {
-            this.sendMessage("550 errour non ethentification.\r\n");
-            throw new NotAuthentificationException();
-        } else {
-
-            String tmp = new File(parServ.getCurrentDirectory()).getCanonicalPath();
-            String chemin = tmp.substring(parServ.getDirectoryServer().length()-2);
-            chemin = chemin.replace(File.separator, new String("/"));
-
-
-            if (chemin.length() == 0) {
-                chemin = chemin + "/";
-            }
-
-            this.sendMessage("257 " + chemin + " \r\n");
-
+    public String processPASS(String message) {
+        if(user != null && this.userAndPassWord.get(user).equals(message)) {
+            log = true;
+            return "230 pass word OK";
         }
+        return "530 pass word KO";
     }
 
 
+    public void sendMessage(String message) throws IOException {
+        message += "\n";
+        this.socket.getOutputStream().write(message.getBytes());
+        this.socket.getOutputStream().flush();
+
+    }
 }
-
-

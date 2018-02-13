@@ -7,8 +7,8 @@ public class DevServer {
         public static String courrantRepertoire;
 
         public DevServer(){
-            this.serverRepertoire = "/Users/taib/Desktop/serveur";
-            this.courrantRepertoire = "/Users/taib/Desktop/directory";
+            this.serverRepertoire = "serveur";
+            this.courrantRepertoire = "directory";
             this.port = 2018;
         }
 

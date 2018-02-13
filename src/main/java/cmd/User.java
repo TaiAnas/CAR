@@ -5,12 +5,17 @@ import java.util.Map;
 
 public class User {
 
-    public final Map<String, String> users = new HashMap<>();
+    public HashMap<String, String> users = new HashMap<>();
     private String user,password;
+
+    public HashMap<String, String> getUsers() {
+        return users;
+    }
 
     public User(){
         users.put("Mohamed","Kaddou");
         users.put("Anas","Taibi");
+
     }
 
     public boolean CorrectUser(String user) {

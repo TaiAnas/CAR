@@ -6,11 +6,11 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="TPs_car_2018" />
+        <module name="car-tp1-Kaddou-Taibi" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="TPs_car_2018" target="1.7" />
+      <module name="car-tp1-Kaddou-Taibi" target="1.7" />
     </bytecodeTargetLevel>
   </component>
 </project>
